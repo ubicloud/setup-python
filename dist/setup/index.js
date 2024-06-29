@@ -45,6 +45,7 @@ const path = __importStar(__nccwpck_require__(1017));
 const utils = __importStar(__nccwpck_require__(1518));
 const cacheHttpClient = __importStar(__nccwpck_require__(8245));
 const tar_1 = __nccwpck_require__(6490);
+const options_1 = __nccwpck_require__(6215);
 class ValidationError extends Error {
     constructor(message) {
         super(message);
@@ -81,7 +82,7 @@ function checkKey(key) {
  * @returns boolean return true if Actions cache service feature is available, otherwise false
  */
 function isFeatureAvailable() {
-    return !!process.env['ACTIONS_CACHE_URL'];
+    return !!process.env['UBICLOUD_CACHE_URL'];
 }
 exports.isFeatureAvailable = isFeatureAvailable;
 /**
@@ -169,12 +170,15 @@ exports.restoreCache = restoreCache;
  * @returns number returns cacheId if the cache was saved successfully and throws an error if save fails
  */
 function saveCache(paths, key, options, enableCrossOsArchive = false) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
     return __awaiter(this, void 0, void 0, function* () {
         checkPaths(paths);
         checkKey(key);
         const compressionMethod = yield utils.getCompressionMethod();
         let cacheId = -1;
+        let uploadId = '';
+        let presignedUrls = [];
+        const uploadOptions = (0, options_1.getUploadOptions)(options);
         const cachePaths = yield utils.resolvePaths(paths);
         core.debug('Cache Paths:');
         core.debug(`${JSON.stringify(cachePaths)}`);
@@ -202,17 +206,20 @@ function saveCache(paths, key, options, enableCrossOsArchive = false) {
                 enableCrossOsArchive,
                 cacheSize: archiveFileSize
             });
-            if ((_a = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.result) === null || _a === void 0 ? void 0 : _a.cacheId) {
-                cacheId = (_b = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.result) === null || _b === void 0 ? void 0 : _b.cacheId;
+            if (((_a = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.result) === null || _a === void 0 ? void 0 : _a.uploadId) && ((_b = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.result) === null || _b === void 0 ? void 0 : _b.presignedUrls) && ((_c = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.result) === null || _c === void 0 ? void 0 : _c.chunkSize)) {
+                cacheId = 0; // It should return a integer different than -1 for compatibility
+                uploadId = (_d = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.result) === null || _d === void 0 ? void 0 : _d.uploadId;
+                presignedUrls = (_e = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.result) === null || _e === void 0 ? void 0 : _e.presignedUrls;
+                uploadOptions.uploadChunkSize = (_f = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.result) === null || _f === void 0 ? void 0 : _f.chunkSize;
             }
             else if ((reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.statusCode) === 400) {
-                throw new Error((_d = (_c = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.error) === null || _c === void 0 ? void 0 : _c.message) !== null && _d !== void 0 ? _d : `Cache size of ~${Math.round(archiveFileSize / (1024 * 1024))} MB (${archiveFileSize} B) is over the data cap limit, not saving cache.`);
+                throw new Error((_h = (_g = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.error) === null || _g === void 0 ? void 0 : _g.message) !== null && _h !== void 0 ? _h : `Cache size of ~${Math.round(archiveFileSize / (1024 * 1024))} MB (${archiveFileSize} B) is over the data cap limit, not saving cache.`);
             }
             else {
-                throw new ReserveCacheError(`Unable to reserve cache with key ${key}, another job may be creating this cache. More details: ${(_e = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.error) === null || _e === void 0 ? void 0 : _e.message}`);
+                throw new ReserveCacheError(`Unable to reserve cache with key ${key}, another job may be creating this cache. More details: ${(_j = reserveCacheResponse === null || reserveCacheResponse === void 0 ? void 0 : reserveCacheResponse.error) === null || _j === void 0 ? void 0 : _j.message}`);
             }
             core.debug(`Saving Cache (ID: ${cacheId})`);
-            yield cacheHttpClient.saveCache(cacheId, archivePath, options);
+            yield cacheHttpClient.saveCache(cacheId, archivePath, uploadId, presignedUrls, uploadOptions);
         }
         catch (error) {
             const typedError = error;
@@ -294,11 +301,11 @@ const options_1 = __nccwpck_require__(6215);
 const requestUtils_1 = __nccwpck_require__(3981);
 const versionSalt = '1.0';
 function getCacheApiUrl(resource) {
-    const baseUrl = process.env['ACTIONS_CACHE_URL'] || '';
+    const baseUrl = process.env['UBICLOUD_CACHE_URL'] || '';
     if (!baseUrl) {
         throw new Error('Cache Service Url not found, unable to restore cache.');
     }
-    const url = `${baseUrl}_apis/artifactcache/${resource}`;
+    const url = `${baseUrl}${resource}`;
     core.debug(`Resource Url: ${url}`);
     return url;
 }
@@ -314,9 +321,9 @@ function getRequestOptions() {
     return requestOptions;
 }
 function createHttpClient() {
-    const token = process.env['ACTIONS_RUNTIME_TOKEN'] || '';
+    const token = process.env['UBICLOUD_RUNTIME_TOKEN'] || '';
     const bearerCredentialHandler = new auth_1.BearerCredentialHandler(token);
-    return new http_client_1.HttpClient('actions/cache', [bearerCredentialHandler], getRequestOptions());
+    return new http_client_1.HttpClient('ubicloud/cache', [bearerCredentialHandler], getRequestOptions());
 }
 function getCacheVersion(paths, compressionMethod, enableCrossOsArchive = false) {
     // don't pass changes upstream
@@ -400,7 +407,7 @@ function downloadCache(archiveLocation, archivePath, options) {
             }
         }
         else {
-            yield (0, downloadUtils_1.downloadCacheHttpClient)(archiveLocation, archivePath);
+            yield (0, downloadUtils_1.downloadCacheHttpClientConcurrent)(archiveLocation, archivePath, downloadOptions);
         }
     });
 }
@@ -435,17 +442,19 @@ function uploadChunk(httpClient, resourceUrl, openStream, start, end) {
         core.debug(`Uploading chunk of size ${end - start + 1} bytes at offset ${start} with content range: ${getContentRange(start, end)}`);
         const additionalHeaders = {
             'Content-Type': 'application/octet-stream',
-            'Content-Range': getContentRange(start, end)
+            'Content-Length': end - start + 1
         };
         const uploadChunkResponse = yield (0, requestUtils_1.retryHttpClientResponse)(`uploadChunk (start: ${start}, end: ${end})`, () => __awaiter(this, void 0, void 0, function* () {
-            return httpClient.sendStream('PATCH', resourceUrl, openStream(), additionalHeaders);
+            return httpClient.sendStream('PUT', resourceUrl, openStream(), additionalHeaders);
         }));
         if (!(0, requestUtils_1.isSuccessStatusCode)(uploadChunkResponse.message.statusCode)) {
+            core.debug(`Chunk upload failed: ${yield uploadChunkResponse.readBody()}`);
             throw new Error(`Cache service responded with ${uploadChunkResponse.message.statusCode} during upload chunk.`);
         }
+        return uploadChunkResponse.message.headers.etag;
     });
 }
-function uploadFile(httpClient, cacheId, archivePath, options) {
+function uploadFile(httpClient, cacheId, archivePath, presignedUrls, options) {
     return __awaiter(this, void 0, void 0, function* () {
         // Upload Chunks
         const fileSize = utils.getArchiveFileSizeInBytes(archivePath);
@@ -454,53 +463,61 @@ function uploadFile(httpClient, cacheId, archivePath, options) {
         const uploadOptions = (0, options_1.getUploadOptions)(options);
         const concurrency = utils.assertDefined('uploadConcurrency', uploadOptions.uploadConcurrency);
         const maxChunkSize = utils.assertDefined('uploadChunkSize', uploadOptions.uploadChunkSize);
-        const parallelUploads = [...new Array(concurrency).keys()];
+        const parallelUploads = presignedUrls;
         core.debug('Awaiting all uploads');
-        let offset = 0;
+        let etags = [];
         try {
-            yield Promise.all(parallelUploads.map(() => __awaiter(this, void 0, void 0, function* () {
-                while (offset < fileSize) {
-                    const chunkSize = Math.min(fileSize - offset, maxChunkSize);
-                    const start = offset;
-                    const end = offset + chunkSize - 1;
-                    offset += maxChunkSize;
-                    yield uploadChunk(httpClient, resourceUrl, () => fs
-                        .createReadStream(archivePath, {
-                        fd,
-                        start,
-                        end,
-                        autoClose: false
-                    })
-                        .on('error', error => {
-                        throw new Error(`Cache upload failed because file read failed with ${error.message}`);
-                    }), start, end);
-                }
+            etags = yield Promise.all(parallelUploads.map((url, index) => __awaiter(this, void 0, void 0, function* () {
+                var _a;
+                const offset = index * maxChunkSize;
+                const chunkSize = Math.min(fileSize - offset, maxChunkSize);
+                const start = offset;
+                const end = offset + chunkSize - 1;
+                core.debug(`Uploading #${index} chunk url:${url}: start:${start} end:${end} size:${fileSize}`);
+                const etag = (_a = yield uploadChunk(httpClient, url, () => fs
+                    .createReadStream(archivePath, {
+                    fd,
+                    start,
+                    end,
+                    autoClose: false
+                })
+                    .on('error', error => {
+                    throw new Error(`Cache upload failed because file read failed with ${error.message}`);
+                }), start, end)) !== null && _a !== void 0 ? _a : "";
+                core.debug(`Completed to upload #${index} chunk etag:${etag}`);
+                return etag;
             })));
+        }
+        catch (error) {
+            core.debug(`Failed to upload cache: ${JSON.stringify(error)}`);
+            throw error;
         }
         finally {
             fs.closeSync(fd);
         }
-        return;
+        return etags;
     });
 }
-function commitCache(httpClient, cacheId, filesize) {
+function commitCache(httpClient, cacheId, filesize, uploadId, etags) {
     return __awaiter(this, void 0, void 0, function* () {
-        const commitCacheRequest = { size: filesize };
+        const commitCacheRequest = { size: filesize, uploadId, etags };
         return yield (0, requestUtils_1.retryTypedResponse)('commitCache', () => __awaiter(this, void 0, void 0, function* () {
-            return httpClient.postJson(getCacheApiUrl(`caches/${cacheId.toString()}`), commitCacheRequest);
+            return httpClient.postJson(getCacheApiUrl('caches/commit'), commitCacheRequest);
         }));
     });
 }
-function saveCache(cacheId, archivePath, options) {
+function saveCache(cacheId, archivePath, uploadId, presignedUrls, options) {
     return __awaiter(this, void 0, void 0, function* () {
         const httpClient = createHttpClient();
+        const blobHttpClient = new http_client_1.HttpClient('ubicloud/cache');
         core.debug('Upload cache');
-        yield uploadFile(httpClient, cacheId, archivePath, options);
+        let etags = yield uploadFile(blobHttpClient, cacheId, archivePath, presignedUrls, options);
+        core.debug('etags: ' + JSON.stringify(etags));
         // Commit Cache
         core.debug('Commiting cache');
         const cacheSize = utils.getArchiveFileSizeInBytes(archivePath);
         core.info(`Cache Size: ~${Math.round(cacheSize / (1024 * 1024))} MB (${cacheSize} B)`);
-        const commitCacheResponse = yield commitCache(httpClient, cacheId, cacheSize);
+        const commitCacheResponse = yield commitCache(httpClient, cacheId, cacheSize, uploadId, etags);
         if (!(0, requestUtils_1.isSuccessStatusCode)(commitCacheResponse.statusCode)) {
             throw new Error(`Cache service responded with ${commitCacheResponse.statusCode} during commit cache.`);
         }
@@ -932,7 +949,7 @@ exports.DownloadProgress = DownloadProgress;
 function downloadCacheHttpClient(archiveLocation, archivePath) {
     return __awaiter(this, void 0, void 0, function* () {
         const writeStream = fs.createWriteStream(archivePath);
-        const httpClient = new http_client_1.HttpClient('actions/cache');
+        const httpClient = new http_client_1.HttpClient('ubicloud/cache');
         const downloadResponse = yield (0, requestUtils_1.retryHttpClientResponse)('downloadCache', () => __awaiter(this, void 0, void 0, function* () { return httpClient.get(archiveLocation); }));
         // Abort download if no traffic received over the socket.
         downloadResponse.message.socket.setTimeout(constants_1.SocketTimeout, () => {
@@ -962,22 +979,22 @@ exports.downloadCacheHttpClient = downloadCacheHttpClient;
  * @param archivePath the local path where the cache is saved
  */
 function downloadCacheHttpClientConcurrent(archiveLocation, archivePath, options) {
-    var _a;
+    var _a, _b, _c;
     return __awaiter(this, void 0, void 0, function* () {
         const archiveDescriptor = yield fs.promises.open(archivePath, 'w');
-        const httpClient = new http_client_1.HttpClient('actions/cache', undefined, {
+        const httpClient = new http_client_1.HttpClient('ubicloud/cache', undefined, {
             socketTimeout: options.timeoutInMs,
             keepAlive: true
         });
         try {
-            const res = yield (0, requestUtils_1.retryHttpClientResponse)('downloadCacheMetadata', () => __awaiter(this, void 0, void 0, function* () { return yield httpClient.request('HEAD', archiveLocation, null, {}); }));
-            const lengthHeader = res.message.headers['content-length'];
-            if (lengthHeader === undefined || lengthHeader === null) {
-                throw new Error('Content-Length not found on blob response');
+            const res = yield (0, requestUtils_1.retryHttpClientResponse)('downloadCacheMetadata', () => __awaiter(this, void 0, void 0, function* () { return yield httpClient.get(archiveLocation, { Range: 'bytes=0-1' }); }));
+            const contentRangeHeader = res.message.headers['content-range'];
+            if (contentRangeHeader === undefined || contentRangeHeader === null) {
+                throw new Error('Content-Range not found on blob response');
             }
-            const length = parseInt(lengthHeader);
+            const length = parseInt((_b = (_a = RegExp(/bytes \d+-\d+\/(\d+)/).exec(contentRangeHeader)) === null || _a === void 0 ? void 0 : _a[1]) !== null && _b !== void 0 ? _b : '');
             if (Number.isNaN(length)) {
-                throw new Error(`Could not interpret Content-Length: ${length}`);
+                throw new Error(`Could not interpret Content-Range: ${length}`);
             }
             const downloads = [];
             const blockSize = 4 * 1024 * 1024;
@@ -1010,7 +1027,7 @@ function downloadCacheHttpClientConcurrent(archiveLocation, archivePath, options
             while ((nextDownload = downloads.pop())) {
                 activeDownloads[nextDownload.offset] = nextDownload.promiseGetter();
                 actives++;
-                if (actives >= ((_a = options.downloadConcurrency) !== null && _a !== void 0 ? _a : 10)) {
+                if (actives >= ((_c = options.downloadConcurrency) !== null && _c !== void 0 ? _c : 10)) {
                     yield waitAndWrite();
                 }
             }
@@ -1631,7 +1648,7 @@ function getDownloadOptions(copy) {
     const result = {
         useAzureSdk: false,
         concurrentBlobDownloads: true,
-        downloadConcurrency: 8,
+        downloadConcurrency: 10,
         timeoutInMs: 30000,
         segmentTimeoutInMs: 600000,
         lookupOnly: false
